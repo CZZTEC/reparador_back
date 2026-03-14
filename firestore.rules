@@ -1,0 +1,305 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // =========================
+    // DEMANDAS
+    // =========================
+    match /demands/{demandId} {
+      allow read: if isLoggedIn();
+      allow create: if isLoggedIn() && 
+        request.resource.data.clientId == request.auth.uid;
+      // ⭐ ATUALIZAÇÃO: Cliente pode atualizar tudo, qualquer um autenticado pode atualizar proposalCount/isClosed
+      allow update: if isLoggedIn() && (
+        resource.data.clientId == request.auth.uid ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proposalCount', 'isClosed', 'updatedAt']))
+      );
+      allow delete: if isLoggedIn() && 
+        (resource.data.clientId == request.auth.uid || isAdmin());
+    }
+
+    // =========================
+    // PROPOSTAS
+    // =========================
+    match /proposals/{proposalId} {
+      allow read: if isLoggedIn();
+      
+      allow create: if isLoggedIn() && 
+        request.resource.data.professionalId == request.auth.uid;
+      
+      // ✅ CORRIGIDO: Obter clientId da demanda relacionada
+      allow update: if isLoggedIn() && (
+        // Profissional pode atualizar sua própria proposta
+        resource.data.professionalId == request.auth.uid ||
+        // Cliente pode atualizar apenas status de resposta
+        (request.auth.uid == get(/databases/$(database)/documents/demands/$(resource.data.demandId)).data.clientId && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'clientResponseAt', 'rejectionReason'])
+        ) ||
+        // Admin pode atualizar tudo
+        isAdmin()
+      );
+      
+      allow delete: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid || 
+        isAdmin()
+      );
+    }
+
+    // =========================
+    // ⭐ ENCERRAMENTOS DE DEMANDA (NOVO)
+    // =========================
+    match /demand_closures/{closureId} {
+      // Qualquer um autenticado pode ler
+      allow read: if isLoggedIn();
+      
+      // Só o cliente pode criar encerramento
+      allow create: if isLoggedIn() && 
+        request.resource.data.clientId == request.auth.uid;
+      
+      // Não permitir update/delete (registro permanente)
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
+
+    // =========================
+    // JOBS/TRABALHOS
+    // =========================
+    match /jobs/{jobId} {
+      allow read: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid ||
+        resource.data.clientId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      allow create: if isLoggedIn() && (
+        request.resource.data.clientId == request.auth.uid ||
+        request.resource.data.professionalId == request.auth.uid
+      );
+      
+      allow update: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid ||
+        resource.data.clientId == request.auth.uid
+      );
+      
+      allow delete: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid ||
+        resource.data.clientId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // =========================
+    // PROFISSIONAIS
+    // =========================
+    match /professionals/{professionalId} {
+      allow read: if isLoggedIn();
+      allow write: if isOwner(professionalId);
+    }
+
+    // =========================
+    // USUÁRIOS
+    // =========================
+    match /users/{userId} {
+      allow read: if isLoggedIn() && isOwner(userId);
+      allow create: if isLoggedIn() && isOwner(userId);
+      allow update: if isLoggedIn() && isOwner(userId);
+      allow delete: if isAdmin();
+    }
+
+    // =========================
+    // EMPRESAS/LOJAS
+    // =========================
+    match /businesses/{businessId} {
+      allow read: if isLoggedIn();
+      allow write: if isOwner(businessId);
+    }
+
+    // =========================
+    // CHATS
+    // =========================
+    match /chats/{chatId} {
+      allow read, write: if isLoggedIn() && 
+        request.auth.uid in resource.data.participants;
+      
+      allow create: if isLoggedIn() &&
+        request.auth.uid in request.resource.data.participants;
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if isLoggedIn() && 
+        request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      
+      allow create: if isLoggedIn() && 
+        request.resource.data.senderId == request.auth.uid &&
+        request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      
+      allow update: if isLoggedIn() && 
+        resource.data.senderId == request.auth.uid;
+      
+      allow delete: if isLoggedIn() && 
+        resource.data.senderId == request.auth.uid;
+    }
+
+    // =========================
+    // AVALIAÇÕES (REVIEWS)
+    // =========================
+    match /reviews/{reviewId} {
+      // Apenas usuários autenticados dentro do contexto podem ler
+      allow read: if isLoggedIn() && (
+        request.auth.uid == resource.data.clientId ||
+        request.auth.uid == resource.data.professionalId ||
+        isAdmin()
+      );
+      
+      // Só o cliente pode criar avaliação
+      allow create: if isLoggedIn() && 
+        request.resource.data.clientId == request.auth.uid;
+      
+      // Só o cliente pode atualizar sua avaliação
+      allow update: if isLoggedIn() && 
+        (resource.data.clientId == request.auth.uid || isAdmin());
+      
+      // Avaliações são permanentes (só admin pode deletar)
+      allow delete: if isAdmin();
+    }
+
+    // =========================
+    // NOTIFICAÇÕES
+    // =========================
+    match /notifications/{notificationId} {
+      allow read, update: if isLoggedIn() && 
+        resource.data.userId == request.auth.uid;
+      allow create: if false; // Apenas via Admin SDK (Cloud Functions)
+      allow delete: if isLoggedIn() && 
+        resource.data.userId == request.auth.uid;
+    }
+
+    // =========================
+    // CONTATOS
+    // =========================
+    match /contatos/{contactId} {
+      allow read: if isLoggedIn();
+      allow create: if isLoggedIn();
+      allow update, delete: if false;
+    }
+
+    // =========================
+    // RELATÓRIOS/DENÚNCIAS
+    // =========================
+    match /reports/{reportId} {
+      allow read: if isModerator();
+      allow create: if isLoggedIn() && 
+        request.resource.data.reportedBy == request.auth.uid;
+      allow update, delete: if isModerator();
+    }
+
+    // =========================
+    // CONFIGURAÇÕES DO APP
+    // =========================
+    match /appConfig/{document=**} {
+      allow read: if isLoggedIn();
+      allow write: if isAdmin();
+    }
+
+    // =========================
+    // CADASTROS
+    // =========================
+    match /cadastros/{docId} {
+      allow read: if isLoggedIn();
+      allow write: if false; // Só via Admin SDK
+    }
+
+    // =========================
+    // RATE LIMITS
+    // =========================
+    match /rate_limits/{userId} {
+      allow read, write: if isLoggedIn() && 
+        request.auth.uid == userId;
+    }
+
+    // =========================
+    // UPLOADS DE ARQUIVOS
+    // =========================
+    match /uploads/{userId}/{document=**} {
+      allow read, write: if isLoggedIn() && 
+        (request.auth.uid == userId || isAdmin());
+    }
+
+    // =========================
+    // ANALYTICS (Apenas Admins)
+    // =========================
+    match /analytics/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // =========================
+    // LOGS DE SEGURANÇA (Apenas Admins)
+    // =========================
+    match /securityLogs/{document=**} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // =========================
+    // ADMIN ONLY DATA
+    // =========================
+    match /adminOnlyData/{document=**} {
+      allow read, write: if false; // Só via Admin SDK
+    }
+
+    // =========================
+    // BACKUPS (Apenas Admins)
+    // =========================
+    match /backups/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    // =========================
+    // SERVICES DO PROFISSIONAL / OFERTAS
+    // =========================
+    match /professional_services/{serviceId} {
+      allow read: if isLoggedIn();
+      
+      allow create: if isLoggedIn() && 
+        request.resource.data.professionalId == request.auth.uid;
+      
+      allow update: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid ||
+        isAdmin()
+      );
+      
+      allow delete: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid || 
+        isAdmin()
+      );
+    }
+
+    // =========================
+    // REGRA PADRÃO: NEGAR TUDO
+    // =========================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  // =========================
+  // ✅ FUNÇÕES DE SEGURANÇA
+  // =========================
+  function isLoggedIn() {
+    return request.auth != null;
+  }
+
+  function isAdmin() {
+    return request.auth != null && 
+      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
+  }
+
+  function isOwner(userId) {
+    return request.auth.uid == userId;
+  }
+
+  function isModerator() {
+    return request.auth != null && 
+      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'moderator';
+  }
+}
