@@ -14,6 +14,7 @@ import cors from "cors";
 import { FirebaseConfig } from "./config/firebase";
 import { AppLogger } from "./core/utils/logger";
 import authRoutes from "./features/auth/presentation/auth.routes";
+import { onNewChatMessage } from "./features/notifications/chat_notification";
 
 // ============================================
 // Configuração Global
@@ -121,9 +122,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // ============================================
-// Cloud Function Export
+// Cloud Function Exports
 // ============================================
 
 export const api = onRequest(app);
+export { onNewChatMessage };
 
 AppLogger.info("BACKEND_INITIALIZED", { version: "1.0.0" });

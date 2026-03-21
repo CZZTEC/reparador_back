@@ -31,9 +31,12 @@ service cloud.firestore {
       allow update: if isLoggedIn() && (
         // Profissional pode atualizar sua própria proposta
         resource.data.professionalId == request.auth.uid ||
-        // Cliente pode atualizar apenas status de resposta
+        // Cliente pode atualizar apenas status de resposta + contraproposta
         (request.auth.uid == get(/databases/$(database)/documents/demands/$(resource.data.demandId)).data.clientId && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'clientResponseAt', 'rejectionReason'])
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+           'status', 'clientResponseAt', 'rejectionReason',
+           'hasCounterProposal', 'lastCounterProposalAt'
+         ])
         ) ||
         // Admin pode atualizar tudo
         isAdmin()
@@ -118,26 +121,72 @@ service cloud.firestore {
     // CHATS
     // =========================
     match /chats/{chatId} {
-      allow read, write: if isLoggedIn() && 
-        request.auth.uid in resource.data.participants;
-      
+      // Read: user must be a participant
+      allow read: if isLoggedIn() &&
+        request.auth.uid in resource.data.get('participants', []);
+
+      // Create: user must include themselves in participants
       allow create: if isLoggedIn() &&
-        request.auth.uid in request.resource.data.participants;
+        request.auth.uid in request.resource.data.get('participants', []);
+
+      // Update: user must already be a participant (typing, online, unread, etc.)
+      allow update: if isLoggedIn() &&
+        request.auth.uid in resource.data.get('participants', []);
+
+      // Delete: participants or admin
+      allow delete: if isLoggedIn() && (
+        request.auth.uid in resource.data.get('participants', []) ||
+        isAdmin()
+      );
     }
 
     match /chats/{chatId}/messages/{messageId} {
-      allow read: if isLoggedIn() && 
-        request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-      
-      allow create: if isLoggedIn() && 
-        request.resource.data.senderId == request.auth.uid &&
-        request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-      
-      allow update: if isLoggedIn() && 
+      // Helper: fetch parent chat participants safely
+      function chatParticipants() {
+        return get(/databases/$(database)/documents/chats/$(chatId)).data.get('participants', []);
+      }
+
+      allow read: if isLoggedIn() &&
+        request.auth.uid in chatParticipants();
+
+      // Create: participant sending a normal message OR a system message
+      allow create: if isLoggedIn() &&
+        request.auth.uid in chatParticipants() &&
+        (request.resource.data.senderId == request.auth.uid ||
+         request.resource.data.senderId == 'system');
+
+      // Update: sender edits own message OR any participant marks isRead/readAt
+      allow update: if isLoggedIn() &&
+        request.auth.uid in chatParticipants() &&
+        (resource.data.senderId == request.auth.uid ||
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['isRead', 'readAt']));
+
+      allow delete: if isLoggedIn() &&
         resource.data.senderId == request.auth.uid;
-      
-      allow delete: if isLoggedIn() && 
-        resource.data.senderId == request.auth.uid;
+    }
+
+    // =========================
+    // CONTRAPROPOSTAS
+    // =========================
+    match /counter_proposals/{counterProposalId} {
+      allow read: if isLoggedIn() && (
+        resource.data.clientId == request.auth.uid ||
+        resource.data.professionalId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow create: if isLoggedIn() &&
+        request.resource.data.clientId == request.auth.uid;
+
+      // Professional responds (accepted/rejected) OR client updates their own
+      allow update: if isLoggedIn() && (
+        resource.data.professionalId == request.auth.uid ||
+        resource.data.clientId == request.auth.uid ||
+        isAdmin()
+      );
+
+      allow delete: if isAdmin();
     }
 
     // =========================
@@ -166,12 +215,18 @@ service cloud.firestore {
     // =========================
     // NOTIFICAÇÕES
     // =========================
-    match /notifications/{notificationId} {
-      allow read, update: if isLoggedIn() && 
-        resource.data.userId == request.auth.uid;
-      allow create: if false; // Apenas via Admin SDK (Cloud Functions)
-      allow delete: if isLoggedIn() && 
-        resource.data.userId == request.auth.uid;
+    match /notifications/{userId} {
+      // User can read their own notification container doc
+      allow read, write: if isLoggedIn() && isOwner(userId);
+
+      match /items/{itemId} {
+        // User can read and update (mark as read) their own notifications
+        allow read: if isLoggedIn() && isOwner(userId);
+        allow update: if isLoggedIn() && isOwner(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+        // Only Cloud Functions (Admin SDK) can create/delete
+        allow create, delete: if false;
+      }
     }
 
     // =========================
