@@ -24,15 +24,17 @@ service cloud.firestore {
     match /proposals/{proposalId} {
       allow read: if isLoggedIn();
       
+      // ⭐ Profissional precisa de plano ativo para enviar proposta
       allow create: if isLoggedIn() && 
-        request.resource.data.professionalId == request.auth.uid;
+        request.resource.data.get('professionalId', null) == request.auth.uid &&
+        isActiveProfessional();
       
       // ✅ CORRIGIDO: Obter clientId da demanda relacionada
       allow update: if isLoggedIn() && (
         // Profissional pode atualizar sua própria proposta
-        resource.data.professionalId == request.auth.uid ||
+        resource.data.get('professionalId', null) == request.auth.uid ||
         // Cliente pode atualizar apenas status de resposta + contraproposta
-        (request.auth.uid == get(/databases/$(database)/documents/demands/$(resource.data.demandId)).data.clientId && 
+        (request.auth.uid == get(/databases/$(database)/documents/demands/$(resource.data.get('demandId', ''))).data.clientId && 
          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
            'status', 'clientResponseAt', 'rejectionReason',
            'hasCounterProposal', 'lastCounterProposalAt'
@@ -315,8 +317,10 @@ service cloud.firestore {
     match /professional_services/{serviceId} {
       allow read: if isLoggedIn();
       
+      // ⭐ Profissional precisa de plano ativo para criar uma oferta
       allow create: if isLoggedIn() && 
-        request.resource.data.professionalId == request.auth.uid;
+        request.resource.data.professionalId == request.auth.uid &&
+        isActiveProfessional();
       
       allow update: if isLoggedIn() && (
         resource.data.professionalId == request.auth.uid ||
@@ -335,26 +339,35 @@ service cloud.firestore {
     match /{document=**} {
       allow read, write: if false;
     }
-  }
 
-  // =========================
-  // ✅ FUNÇÕES DE SEGURANÇA
-  // =========================
-  function isLoggedIn() {
-    return request.auth != null;
-  }
+    // =========================
+    // ✅ FUNÇÕES DE SEGURANÇA
+    // =========================
+    function isLoggedIn() {
+      return request.auth != null;
+    }
 
-  function isAdmin() {
-    return request.auth != null && 
-      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
-  }
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin';
+    }
 
-  function isOwner(userId) {
-    return request.auth.uid == userId;
-  }
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
 
-  function isModerator() {
-    return request.auth != null && 
-      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'moderator';
+    function isModerator() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'moderator';
+    }
+
+    // ⭐ Verifica se o profissional tem plano ativo
+    function isActiveProfessional() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('subscription', {}).get('status', '') == 'active';
+    }
   }
 }

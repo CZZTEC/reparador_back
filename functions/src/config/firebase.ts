@@ -1,5 +1,17 @@
 import * as admin from 'firebase-admin';
 
+// ⭐ DEVE SER SETADO ANTES de qualquer admin.initializeApp()
+// O Firebase CLI seta FUNCTIONS_EMULATOR=true em todos os processos emulados
+if (process.env.FUNCTIONS_EMULATOR === 'true') {
+  process.env.FIRESTORE_EMULATOR_HOST =
+    process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
+  process.env.FIREBASE_AUTH_EMULATOR_HOST =
+    process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
+  console.log('[FirebaseConfig] Emulator mode detected');
+  console.log('  FIRESTORE_EMULATOR_HOST  =', process.env.FIRESTORE_EMULATOR_HOST);
+  console.log('  FIREBASE_AUTH_EMULATOR_HOST =', process.env.FIREBASE_AUTH_EMULATOR_HOST);
+}
+
 let initialized = false;
 
 export class FirebaseConfig {
@@ -7,13 +19,6 @@ export class FirebaseConfig {
     if (initialized) return;
 
     try {
-      // Configurar emuladores ANTES de inicializar o app
-      if (process.env.FIREBASE_EMULATOR_HOST || process.env.NODE_ENV === 'development') {
-        // Variáveis de ambiente padrão para emulador
-        process.env.FIRESTORE_EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8081';
-        process.env.FIREBASE_AUTH_EMULATOR_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST || '127.0.0.1:9099';
-      }
-
       admin.initializeApp();
 
       // Configurar Firestore com settings corretos

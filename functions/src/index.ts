@@ -14,6 +14,7 @@ import cors from "cors";
 import { FirebaseConfig } from "./config/firebase";
 import { AppLogger } from "./core/utils/logger";
 import authRoutes from "./features/auth/presentation/auth.routes";
+import plansRoutes from "./features/plans/plans.routes";
 import { onNewChatMessage } from "./features/notifications/chat_notification";
 
 // ============================================
@@ -101,6 +102,9 @@ app.get("/health", (req: Request, res: Response) => {
 
 // Auth Routes
 app.use("/auth", authRoutes);
+
+// Plans Routes
+app.use("/plans", plansRoutes);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {

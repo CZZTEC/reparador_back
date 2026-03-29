@@ -16,12 +16,12 @@ const loginLimiter = rateLimit({
   message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
   standardHeaders: true, // Retorna info do rate-limit nos headers `RateLimit-*`
   legacyHeaders: false, // Desabilita headers `X-RateLimit-*`
-  keyGenerator: (req) => {
+  keyGenerator: (req: Request) => {
     // Usar email ou IP como chave
     const email = (req.body as any)?.email || req.ip || 'unknown';
     return email;
   },
-  skip: (req) => {
+  skip: (req: Request) => {
     // Os testes podem ser pulados
     return process.env.NODE_ENV === 'test';
   },
@@ -34,11 +34,11 @@ const registerLimiter = rateLimit({
   message: 'Muitas tentativas de registro. Tente novamente em 1 hora.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
+  keyGenerator: (req: Request) => {
     const email = (req.body as any)?.email || req.ip || 'unknown';
     return email;
   },
-  skip: (req) => {
+  skip: (req: Request) => {
     return process.env.NODE_ENV === 'test';
   },
 });
@@ -50,11 +50,11 @@ const forgotPasswordLimiter = rateLimit({
   message: 'Muitos emails de recuperação enviados. Tente novamente em 1 hora.',
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => {
+  keyGenerator: (req: Request) => {
     const email = (req.body as any)?.email || req.ip || 'unknown';
     return email;
   },
-  skip: (req) => {
+  skip: (req: Request) => {
     return process.env.NODE_ENV === 'test';
   },
 });
